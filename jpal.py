@@ -1037,7 +1037,7 @@ class JpalAgent():
             
     def check_thymio_send_action(self, state, action, client):
         """
-        Check Thymio robot is used and send action if not staying at the same state
+        Check whether Thymio robot is used and send action if not staying at the same state
         
         :param state: current state of the environment
         :param action: int action
@@ -1050,7 +1050,7 @@ class JpalAgent():
     
     def wrap_up_step(self, state, action, client):
         """
-        Check Thymio robot is used and send action if not staying at the same state
+        Complete a step and return the response of the environment
         
         :param state: current state of the environment
         :param action: int action
