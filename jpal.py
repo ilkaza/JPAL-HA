@@ -1186,7 +1186,7 @@ class JpalAgent():
                     if not self.is_clip_in_memory(state, safe, new_action, mem='X'):
                         self.number_of_queries_to_state[state['board'].tostring()] += 1
                         self.fill_Mem_with_state_and_2_actions(state, safe, new_action, mem='X')
-                        self.X[3].append(1) # equal
+                        self.X[3].append(1)
                         self.X[4].append(justification_new_action)
                         counter_actions_X5 +=1                    
                 catastrophic_actions.append(new_action)
