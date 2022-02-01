@@ -83,7 +83,7 @@ X_MAX_SIZE = 500 # max size of Embraced Memory X (will normally break before tha
 MAX_EPISODES = 50 # max episodes for a trial (will normally break before that)
 
 # Human Parameters: runs Real-Time Dynamic Programming (episodic value iteration) with random behavioural policy
-HUMAN_EPISODES = 2000
+HUMAN_EPISODES = 20000
 human_gamma = 0.9
 human_epsilon = 0.05
 human_alpha = 1.0 # 1 for deterministic env
