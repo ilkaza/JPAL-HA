@@ -1,5 +1,5 @@
 # JPAL-HA
-**Justified Human Preferences for Active Learning with Hypothetical Actions (JPAL-HA)** is an human-in-the-loop algorithm for safe agent learning in safety-critical environments. It builds on the **Parenting** algorithm from [(Frye et al., 2019)](https://arxiv.org/pdf/1902.06766.pdf), augmenting it with two novel and generalisable ideas: **Justifications** and **Hypothetical Actions**.
+[**Justified Human Preferences for Active Learning with Hypothetical Actions (JPAL-HA)**](https://eprints.soton.ac.uk/454808/) is an human-in-the-loop algorithm for safe agent learning in safety-critical environments. It builds on the **Parenting** algorithm from [(Frye et al., 2019)](https://arxiv.org/pdf/1902.06766.pdf), augmenting it with two novel and generalisable ideas: **Justifications** and **Hypothetical Actions**.
 
 ### Files
 
