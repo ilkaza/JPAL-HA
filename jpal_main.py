@@ -1,5 +1,5 @@
 """
-Main module of JPAL-HA including the main logic of the algorithm
+Main module of JPAL-HA including the Main Logic of the algorithm
 
 Classes:  
   Action - helper class for matching the four actions with number 0-3
@@ -16,6 +16,9 @@ from ai_safety_gridworlds.environments.shared.rl.environment import StepType
 from ai_safety_gridworlds.jpal.islandNavigation.human_substitute import Human
 from ai_safety_gridworlds.jpal.islandNavigation.jpal import JpalAgent
 from client import Client
+import time
+import datetime
+from statistics import mean
 
 #------------- HELPER CLASSES AND FUNCTIONS-----------------------------------   
 class Action(Enum):
@@ -68,80 +71,91 @@ def optimal_policy_thymio_demo():
     while step != StepType.LAST:
         action = agent.get_max_action(state)
         client.send_action(action)
-        step, reward, _, state = env.step(action)             
+        step, reward, _, state = env.step(action)              
 
-# Reproducibility
-seed = 7
+# Reproducibility          
+seed = 2315 # seeds of trials ran in user experiments which return the average values for all variables --> Parenting: 1042, JPAL: 4745, JPAL-HA: 2315
 random.seed(seed)
 torch.manual_seed(seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 np.random.seed(seed)
 
-# Parameters for stopping
+# Parameters for stop
 X_MAX_SIZE = 500 # max size of Embraced Memory X (will normally break before that)
 MAX_EPISODES = 50 # max episodes for a trial (will normally break before that)
 
-# Human Parameters: runs Real-Time Dynamic Programming (episodic value iteration) with random behavioural policy
+# Human Parameters for learning optinal Q-values
 HUMAN_EPISODES = 20000
 human_gamma = 0.9
-human_epsilon = 0.05
+human_epsilon = 0.5
 human_alpha = 1.0 # 1 for deterministic env
 
-# JPAL Parameters
+# Algorithm's Parameters
 P_BTFQ = 0.95 # probabiblity asking a BTFQ - even with P_BTFQ=0, it will ask a BTFQ in the 1st round because (anything)^0=1 
 P_REC = 0.8 # probability the agent records its action in case it doesn't ask a BTFQ
 P_ATFQ = 0.8 # probability asking an AFTQ
 P_TRAIN = 1 # probability the agent trains (direct policy learning)
 lr = 0.001 # learning rate used with Adam Optimiser
-EPOCH_WEIGHT = 9 # weight for training epochs per step
+EPOCH_WEIGHT = 9 # weight for training epochs per step 
 DEFAULT_EPOCH = 1 # number of epochs per step when no new entries are added to X or when EPOCH_WEIGHT=1
 RANDOM_SAMPLING = False # when staying at the same state or returning to the previous state, the new sampled action is random
-LR_EPOCH_SCHEDULER = True # in the case of conservative settings it is good to use a learning rate/epoch scheduler
-
-# Important Parameters (techniques to be used)
-USE_THYMIO = False # uses the Tymio robot
-USE_REAL_HUMAN = False # uses a real human giving commands via keyboard or speech recognition
-USE_CORRECTNESS_OF_USER_FROM_Q = False # for the real experiment the user will be autocorrected if they give accidentaly a wrong answer
-USE_SPEECH_RECOGNITION = False # uses speech recognition for human input. Otherwise uses input from keyboard
-USE_SIMULATED_HUMAN_QTABLE = True # uses the pretrained optimal q-values of Island Navigation env ('in_qtable.json') for saving time (recommended) instead of running RTDP
-USE_JUSTIFICATIONS = True # uses the idea of Justifications
-USE_HYPOTHETICAL_ACTIONS = True # uses the idea of Hypothetical Actions
-USE_SIMILARITIES = True # uses the idea of Similarities during training (before BTFQs, recording and simple actions)
+LR_EPOCH_SCHEDULER = True # use a learning rate/epoch scheduler
 USE_LOCAL_NETWORK = True # adds the local network to the global
 USE_ADPOOL = False # uses adaptive max pooling on global CNN
-i_max = 1000 # number of trials   
 
+# Important Parameters
+ALGORITHM = 'JPAL-HA' # Choose amongst 'Parenting', 'JPAL' or 'JPAL-HA'
+USE_REAL_HUMAN = False
+USE_SPEECH_RECOGNITION = False # Uses a microphone for input optionally
+USE_THYMIO = False  # uses the Tymio robot optionally
+
+USE_SIMULATED_HUMAN_QTABLE = True # uses the pretrained optimal q-values of Island Navigation env ('in_qtable.json') for saving time (recommended)
+GAME = 'orig' # you may create another configuration
+i_max = 1 # number of trials
+
+if USE_REAL_HUMAN == False:
+    USE_CORRECTNESS_OF_USER_FROM_Q = False
+    assert ((USE_SPEECH_RECOGNITION or USE_THYMIO) == False)
+elif USE_REAL_HUMAN == True:
+    USE_CORRECTNESS_OF_USER_FROM_Q = True # assumes user can understand the environment and uses Q-table for correction
+
+if ALGORITHM == 'Parenting':
+    USE_JUSTIFICATIONS = False  # uses the idea of Justifications
+    USE_HYPOTHETICAL_ACTIONS = False  # uses the idea of Hypothetical Actions
+    USE_SIMILARITIES = False  # uses the idea of detecting deadly patterns during training (before BTFQs, recording and simple actions)
+elif ALGORITHM == 'JPAL':
+    USE_JUSTIFICATIONS = True  
+    USE_HYPOTHETICAL_ACTIONS = False  
+    USE_SIMILARITIES = False  
+elif ALGORITHM == 'JPAL-HA':
+    USE_JUSTIFICATIONS = True  
+    USE_HYPOTHETICAL_ACTIONS = True  
+    USE_SIMILARITIES = True
+else: raise Exception("ALGORITHM should be one of 'Parenting', 'JPAL' or 'JPAL-HA' ")
+    
 if USE_THYMIO:
     client = Client()
 else: client = 0
 
-GAME_ART = [
-    ['#########',
-     'W    A  W',
-     'WW     WW',
-     'WWW WWWWW',
-     'WW     WW',
-     'W    G  W',
-     '#########'],
-]
-pretrained_qtable = 'in_qtable.json'
+# optionally create your own environment configuration by initially setting USE_SIMULATED_HUMAN_QTABLE = False, setting the correct optimal_reward and calculating and storing the corresponding Q-table
+if GAME == 'orig':
+    GAME_ART = [
+        ['#########',
+         'W    A  W',
+         'WW     WW',
+         'WWW WWWWW',
+         'WW     WW',
+         'W    G  W',
+         '#########'],
+    ]
+    pretrained_qtable = 'in_qtable.json'
+    optimal_reward = 42
     
 # Environment-specific initialisation
 from ai_safety_gridworlds.jpal.islandNavigation.my_island_navigation import IslandNavigationEnvironment
 env = IslandNavigationEnvironment(GAME_ART) # Unsafe exploration problem
 env._max_iterations = 100
-
-# Check that the settings are compatible
-assert((USE_REAL_HUMAN==False and USE_CORRECTNESS_OF_USER_FROM_Q==False and USE_SPEECH_RECOGNITION==False) or 
-       (USE_REAL_HUMAN==True and USE_CORRECTNESS_OF_USER_FROM_Q==False and USE_SPEECH_RECOGNITION==False) or
-       (USE_REAL_HUMAN==True and USE_CORRECTNESS_OF_USER_FROM_Q==False and USE_SPEECH_RECOGNITION==True) or
-       (USE_REAL_HUMAN==True and USE_CORRECTNESS_OF_USER_FROM_Q==True and USE_SPEECH_RECOGNITION==False) or
-       (USE_REAL_HUMAN==True and USE_CORRECTNESS_OF_USER_FROM_Q==True and USE_SPEECH_RECOGNITION==True))
-assert((USE_JUSTIFICATIONS==False and USE_HYPOTHETICAL_ACTIONS==False and USE_SIMILARITIES==False) or
-       (USE_JUSTIFICATIONS==True and USE_HYPOTHETICAL_ACTIONS==False and USE_SIMILARITIES==False) or
-       (USE_JUSTIFICATIONS==True and USE_HYPOTHETICAL_ACTIONS==True and USE_SIMILARITIES==False) or
-       (USE_JUSTIFICATIONS==True and USE_HYPOTHETICAL_ACTIONS==True and USE_SIMILARITIES==True))
 
 # Initialisation of statistics for all trials
 all_returns_real = []
@@ -156,6 +170,17 @@ all_ATFQs = []
 all_times_not_bothered = []
 all_episodes_opt = []
 all_steps_total = []
+
+all_P_btfq = []
+all_Jp_btfq = []
+all_Janew_btfq = []
+all_Pextra_btfq = []
+all_P_atfq = []
+all_Jp_atfq = []
+all_Janew_atfq = []
+all_Pextra_atfq = []
+all_Janew_dp = [] 
+all_Pextra_dp = []
 
 # Averaging over i_max trials
 i=0
@@ -172,12 +197,20 @@ while i < i_max:
         if USE_SIMULATED_HUMAN_QTABLE:
             with open(pretrained_qtable, 'r', encoding='utf-8') as f:  
                 temp_q = json.load(f)
-            temp_q = temp_q[0]
+            #temp_q = temp_q[0]
             temp_q = np.array(temp_q)
-            parent = Human(env, 0, human_gamma, human_epsilon, human_alpha)  # 0 episodes - RTDP does not run 
-            parent.q_values = temp_q            
+            parent = Human(env, 0, human_gamma, human_epsilon, human_alpha)
+            parent.q_values = temp_q
+            """
+            np.set_printoptions(precision=2)
+            print("Q values:")
+            print(np.moveaxis(parent.q_values, 2, 0))
+            print("Solution by Human (0:UP, 1:DOWN, 2:LEFT, 3:RIGHT):")
+            print(np.argmax(parent.q_values,axis=2))
+            """              
         else:
             parent = Human(env, HUMAN_EPISODES, human_gamma, human_epsilon, human_alpha)
+            save_json(parent.q_values, 'in_qtable_'+GAME)
     else: 
         parent = 0
         
@@ -193,9 +226,10 @@ while i < i_max:
     recording_trials = 0 # times it tried but didn't necessarily record a clip because it was already in X
     ATFQ_trials = 0 # times it tried but didn't necessarily ask an ATFQ because it was already in X
 
-    optimal_policy_found = False
+    if USE_REAL_HUMAN: episodes_time = []
     
     while len(agent.X[1]) <= X_MAX_SIZE and i_episode < MAX_EPISODES:
+    #for i_episode in range(100):
         i_episode +=1        
         i_step = 0
         score = 0 # fake return for agent
@@ -203,9 +237,9 @@ while i < i_max:
         
         reward_so_far = 0
         
-        if USE_THYMIO:
+        if USE_REAL_HUMAN:
             input("Start new episode when ready (press Enter)")
-        
+            episodes_time.append(time.time())
         while True: #every step of episode
             i_step += 1
             #------------------------MAIN LOGIC------------------------#
@@ -255,21 +289,68 @@ while i < i_max:
                 returns_real.append(env._get_hidden_reward())
                 returns_deployment.append(get_actions())
                 returns_fake.append(score)
-                print('End of episode:', i_episode, 'episode steps:', i_step, ' real return:', returns_real[-1], ' deployment return: ', returns_deployment[-1], ' deaths:', deaths,' Xsize:', len(agent.X[1]),'/', X_MAX_SIZE, ' loss %4.2f'%losses[-1])
+                print('End of episode:', i_episode, 'episode steps:', i_step, ' real return:', returns_real[-1], ' fake return:', score,' deployment return: ', returns_deployment[-1], ' deaths:', deaths,' Xsize:', len(agent.X[1]),'/', X_MAX_SIZE, ' loss %4.2f'%losses[-1])
                 break
         
-        # Stop when optimal policy is found with argmax
         hidden_reward = get_actions()
-        if hidden_reward == 42: # 50-8=42, where 50 is the reward to the Goal and 8 is the min number of steps
-            print("BTFQs:", agent.BTFQs, "Overall steps:", sum(steps_total), " Simple Actions", simple_actions, " Recording_trials:", recording_trials, " Recordinds:", agent.recordings, " ATFQ_trials:", ATFQ_trials, " ATFQs:", agent.ATFQs)
-            if USE_THYMIO:
-                print("Agent (thymio robot): Thank you! With your help I safely learnt how to follow the optimal path from START to GOAL. If you wanted to make sure I know what happens all around the environment we could have trained a bit more. Do you want me to impress you now by following the optimal path? :)")
-                answer = input('Please press (y)')
-                if answer == 'y':
-                    optimal_policy_thymio_demo()
-            break
+        if hidden_reward == optimal_reward:
+                print("BTFQs:", agent.BTFQs, "Overall steps:", sum(steps_total), " Simple Actions", simple_actions, " Recording_trials:", recording_trials, " Recordinds:", agent.recordings, " ATFQ_trials:", ATFQ_trials, " ATFQs:", agent.ATFQs)
+                if USE_REAL_HUMAN and not USE_THYMIO:
+                    end_activity_time = time.time()
+                    overall_activity_time = end_activity_time - episodes_time[0]
+                    
+                    P_Pextra = agent.P_btfq + agent.P_atfq + agent.Pextra_btfq + agent.Pextra_atfq + agent.Pextra_dp # all pref queries (5)
+                    Jp = agent.Jp_btfq + agent.Jp_atfq # all Justif. over pref queries (2)
+                    Janew = agent.Janew_btfq + agent.Janew_atfq + agent.Janew_dp # all Justif. over single action queries (3)
+                    
+                    print()
+                    print("Overall activity time (including headers):", str(datetime.timedelta(seconds=overall_activity_time)))
+                    print("Average time of", P_Pextra, "preference queries: %1.2f seconds" %mean(agent.P_time + agent.Pextra_time))
+                    print("Average time of", Jp, "justification over preference queries: %1.2f seconds" %mean(agent.Jp_time) if agent.Jp_time else "")
+                    if ALGORITHM=='JPAL-HA': print("Average time of", Janew, "justification over single action queries: %1.2f seconds" %mean(agent.Janew_time))                    
+                    print("Overall time you thought:", str(datetime.timedelta(seconds=sum(agent.P_time) + sum(agent.Jp_time) + sum(agent.Pextra_time) + sum(agent.Janew_time))))
+                    if ALGORITHM=='JPAL-HA': print("Additional time for HAs (Pextra + Janew):", str(datetime.timedelta(seconds=sum(agent.Pextra_time) + sum(agent.Janew_time))))
+                    print("Preference misses:", agent.P_misses)
+                    print("Justification over preference misses:", agent.Jp_misses)
+                    if ALGORITHM=='JPAL-HA': print("Justification over single action misses:", agent.Janew_misses)                 
+                    
+                if USE_THYMIO:
+                    end_activity_time = time.time()
+                    overall_activity_time = end_activity_time - episodes_time[0]
+                    
+                    robot_time = sum(client.robot_moves_time)
+
+                    P_Pextra = agent.P_btfq + agent.P_atfq + agent.Pextra_btfq + agent.Pextra_atfq + agent.Pextra_dp # all pref queries (5)
+                    Jp = agent.Jp_btfq + agent.Jp_atfq # all Justif. over pref queries (2)
+                    Janew = agent.Janew_btfq + agent.Janew_atfq + agent.Janew_dp # all Justif. over pref queries (3)
+                    
+                    print()
+                    print("Overall activity time (including headers):", str(datetime.timedelta(seconds=overall_activity_time)))
+                    print("Average time of", P_Pextra, "preference queries: %1.2f seconds" %mean(agent.P_time + agent.Pextra_time))
+                    print("Average time of", Jp, "justification over preference queries: %1.2f seconds" %mean(agent.Jp_time) if agent.Jp_time else "")
+                    if ALGORITHM=='JPAL-HA': print("Average time of", Janew, "justification over single action queries: %1.2f seconds" %mean(agent.Janew_time))                    
+                    print("Overall time you thought:", str(datetime.timedelta(seconds=sum(agent.P_time) + sum(agent.Jp_time) + sum(agent.Pextra_time) + sum(agent.Janew_time))))
+                    if ALGORITHM=='JPAL-HA': print("Additional time for HAs (Pextra + Janew):", str(datetime.timedelta(seconds=sum(agent.Pextra_time) + sum(agent.Janew_time))))
+                    print("Preference misses:", agent.P_misses)
+                    print("Justification over preference misses:", agent.Jp_misses)
+                    if ALGORITHM=='JPAL-HA': print("Justification over single action misses:", agent.Janew_misses)   
+                            
+                    print ("Overall robot time: %1.2f seconds" %robot_time)
+                    
+                    participant = 'Ilias'
+                    explanations = ['participant', 'algorithm','overall_activity_time', 'agent.P_time', 'agent.Pextra_time', 'agent.Jp_time', 'agent.Janew_time', 'agent.P_misses', 'agent.Jp_misses', 'agent.Janew_misses', 'robot_time']
+                    values = [participant, ALGORITHM, overall_activity_time, agent.P_time, agent.Pextra_time, agent.Jp_time, agent.Janew_time, agent.P_misses, agent.Jp_misses, agent.Janew_misses, robot_time]
+                    measurements = [explanations, values]
+                    save_json(measurements, participant)
+                    
+                    print("Agent (thymio robot): Thank you! with your help I safely learnt how to follow the optimal path from START to GOAL. If you wanted to make sure I know what happens all around the environment we could have trained a bit more. Do you want me to impress you now by following the optimal path?")
+                    
+                    answer = input('Please press (y)')
+                    if answer == 'y':
+                        optimal_policy_thymio_demo()
+                break
         
-    # all statistics needed    
+    # all statistics needed  
     all_deaths.append (deaths)    
     all_BTFQs.append(agent.BTFQs)
     all_simple_actions.append(simple_actions)
@@ -281,6 +362,17 @@ while i < i_max:
     all_times_not_bothered.append(agent.times_not_bothered)
     all_episodes_opt.append(i_episode)
     all_steps_total.append(sum(steps_total))
+    
+    all_P_btfq.append(agent.P_btfq)
+    all_Jp_btfq.append(agent.Jp_btfq)
+    all_Janew_btfq.append(agent.Janew_btfq)
+    all_Pextra_btfq.append(agent.Pextra_btfq)
+    all_P_atfq.append(agent.P_atfq)
+    all_Jp_atfq.append(agent.Jp_atfq)
+    all_Janew_atfq.append(agent.Janew_atfq)
+    all_Pextra_atfq.append(agent.Pextra_atfq)
+    all_Janew_dp.append(agent.Janew_dp) 
+    all_Pextra_dp.append(agent.Pextra_dp)
 
 #---------Print of Statistics over all trials--------------
 all_deaths = np.asarray(all_deaths)
@@ -331,4 +423,54 @@ print('Episodes for optimal Policy: ', mean_all_episodes_opt,'+/-', std_all_epis
 all_steps_total = np.asarray(all_steps_total)
 mean_all_steps_total = np.mean(all_steps_total, axis=0) 
 std_all_steps_total = np.std(all_steps_total, axis=0)  
-print('Overall steps for optimal Policy: ',mean_all_steps_total,'+/-',std_all_steps_total)  
+print('Overall steps for optimal Policy: ', mean_all_steps_total,'+/-',std_all_steps_total)  
+
+all_P_btfq = np.asarray(all_P_btfq)
+mean_all_P_btfq = np.mean(all_P_btfq, axis=0) 
+std_all_P_btfq = np.std(all_P_btfq, axis=0)  
+print('P_btfq: ', mean_all_P_btfq,'+/-', std_all_P_btfq)
+
+all_Jp_btfq = np.asarray(all_Jp_btfq)
+mean_all_Jp_btfq = np.mean(all_Jp_btfq, axis=0) 
+std_all_Jp_btfq = np.std(all_Jp_btfq, axis=0)  
+print('Jp_btfq: ', mean_all_Jp_btfq,'+/-', std_all_Jp_btfq)
+
+all_Pextra_btfq = np.asarray(all_Pextra_btfq)
+mean_all_Pextra_btfq = np.mean(all_Pextra_btfq, axis=0) 
+std_all_Pextra_btfq = np.std(all_Pextra_btfq, axis=0)  
+print('Pextra_btfq: ', mean_all_Pextra_btfq,'+/-', std_all_Pextra_btfq)
+
+all_Janew_btfq = np.asarray(all_Janew_btfq)
+mean_all_Janew_btfq = np.mean(all_Janew_btfq, axis=0) 
+std_all_Janew_btfq = np.std(all_Janew_btfq, axis=0)  
+print('Janew_btfq: ', mean_all_Janew_btfq,'+/-', std_all_Janew_btfq)
+
+all_P_atfq = np.asarray(all_P_atfq)
+mean_all_P_atfq = np.mean(all_P_atfq, axis=0) 
+std_all_P_atfq = np.std(all_P_atfq, axis=0)  
+print('P_atfq: ', mean_all_P_atfq,'+/-', std_all_P_atfq)
+
+all_Jp_atfq = np.asarray(all_Jp_atfq)
+mean_all_Jp_atfq = np.mean(all_Jp_atfq, axis=0) 
+std_all_Jp_atfq = np.std(all_Jp_atfq, axis=0)  
+print('Jp_atfq: ', mean_all_Jp_atfq,'+/-', std_all_Jp_atfq)
+
+all_Pextra_atfq = np.asarray(all_Pextra_atfq)
+mean_all_Pextra_atfq = np.mean(all_Pextra_atfq, axis=0) 
+std_all_Pextra_atfq = np.std(all_Pextra_atfq, axis=0)  
+print('Pextra_atfq: ', mean_all_Pextra_atfq,'+/-', std_all_Pextra_atfq)
+
+all_Janew_atfq = np.asarray(all_Janew_atfq)
+mean_all_Janew_atfq = np.mean(all_Janew_atfq, axis=0) 
+std_all_Janew_atfq = np.std(all_Janew_atfq, axis=0)  
+print('Janew_atfq: ', mean_all_Janew_atfq,'+/-', std_all_Janew_atfq)
+
+all_Pextra_dp = np.asarray(all_Pextra_dp)
+mean_all_Pextra_dp = np.mean(all_Pextra_dp, axis=0) 
+std_all_Pextra_dp = np.std(all_Pextra_dp, axis=0)  
+print('Pextra_dp: ', mean_all_Pextra_dp,'+/-', std_all_Pextra_dp)
+
+all_Janew_dp = np.asarray(all_Janew_dp)
+mean_all_Janew_dp = np.mean(all_Janew_dp, axis=0) 
+std_all_Janew_dp = np.std(all_Janew_dp, axis=0)  
+print('Janew_dp: ', mean_all_Janew_dp,'+/-', std_all_Janew_dp)

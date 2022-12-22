@@ -1,16 +1,15 @@
 """
-A module for substituting the real human with a simulated one by computing the optimal q-values with Dynamic Programming and
-returning the values and infromation regarding human
+A module for substituting the real human with a simulated one by computing the optimal Q-values and returning the values and information regarding the human
 
 Classes:
-  Human - substitutes the real human with the optimal policy and an (almost) perfect q-table
-  Action - helper class for matching the four actions with number 0-3
+  Human - substitutes the real human with the optimal Q-table and policy 
+  Action - helper class for matching the four actions to numbers 0-3
 """
 
 from enum import Enum
 from ai_safety_gridworlds.environments.shared.rl.environment import StepType
 import numpy as np
-
+import torch
 class Human():
     """
     Substitutes the real human with the optimal policy and an (almost) perfect q-table
@@ -31,7 +30,7 @@ class Human():
         self.episodes = int(episodes)        
         self.agent_char = self.env._value_mapping['A'] # '2.0' in Island Navigation
         self.computeQvalues()
-        #self.info_human()
+        # self.info_human()
 
     def initialiseQvalues(self, env):
         """
@@ -41,7 +40,7 @@ class Human():
         :returns: numpy q-table of 0s of the board dimension
         """        
         dim = env.observation_spec()['board'].shape # (7,9)
-        dim = *dim, 4 #
+        dim = *dim, 4 
         return np.zeros(dim)
         
     def Qstate(self, s, a): 
@@ -87,10 +86,9 @@ class Human():
         x, y= self._findPos(s)
         return self.Q(x,y,a) - self.V(x,y)
 
-    def computeQvalues(self): #in an episodic way
+    def computeQvalues(self):
         """
-        Computes Q-values with Real-time Dynamic Programming (RTDP)
-        RTDP is a trajectory-sampling version of the value-iteration algorithm of dynamic programming (DP) - (see Sutton Barto, 2018 p.177)
+        Computes Q-table
         """
         for i in range(self.episodes):            
             states, actions, rewards, termination = self.run1episode() #termination" is 0 if reached GOAL or BAD state and 1 if reached MAX_STEPS
@@ -113,13 +111,22 @@ class Human():
 
             self.q_values = q        
             # print(np.moveaxis(self.q_values, 2, 0))
+
+    def find_agent_pos(self, state):
+        """
+        Finds the position of the agent
+        
+        :param state: current state of the environment
+        :returns: int 2 coordinates of the agent
+        """ 
+        pos = np.where(state['board'] == 2.0)
+        if pos[0].size == 0:
+            return None
+        return pos[0].item(), pos[1].item()   # e.g. (2,5)
     
     def run1episode(self):
         """
-        Runs one episode using random behaviour policy
-        
-        For finding Q-values random policy is better here now than applying learned policy (e.g. epsilon greedy) because
-        it goes through all states and gives the optimal q-table
+        Runs one episode using epsilon -greedy policy        
         
         returns: list of tuples of coordinates of states passed at each step
         returns: list of actions taken at each step
@@ -131,12 +138,20 @@ class Human():
         rewards = []
 
         step, reward, _, obs = self.env.reset()
+        local_state = self.find_agent_pos(obs)
         states.append(self._findPos(obs))
         # print(obs['board'])
         reward_so_far = 0
 
         while step != StepType.LAST:
-            action = np.random.choice(4)
+            local_state = self.find_agent_pos(obs)
+            #Pick action from e-greedy
+            random_for_egreedy = np.random.uniform()        
+            if random_for_egreedy > self.epsilon: # exploit
+                random_values = self.q_values[local_state] + np.random.uniform(size=4) / 1000      
+                action = np.argmax(random_values)  
+            else: # explore
+                action = action = np.random.choice(4)
             actions.append(action)
 
             step, reward, _, obs = self.env.step(action) # this will be the fake reward the agent would normmally see

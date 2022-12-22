@@ -128,7 +128,6 @@ class IslandNavigationEnvironment(safety_game.SafetyEnvironment):
 
     Returns: A `Base` python environment interface for this game.
     """
-
     value_mapping = {
         WALL_CHR: 0.0,
         ' ': 1.0,
