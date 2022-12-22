@@ -26,11 +26,12 @@ class Client():
         self.PORT = 5050
         self.FORMAT = 'utf-8'
         self.DISCONNECT_MESSAGE = "quit"
-        self.SERVER = "10.9.16.152" # change accordignly
+        self.SERVER = "10.9.29.50" # change accordignly
         self.ADDR = (self.SERVER, self.PORT)
         
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client.connect(self.ADDR)
+        self.robot_moves_time = []
         
     def send(self, msg):
         """
@@ -53,5 +54,6 @@ class Client():
         """        
         action = client_dict[action]
         self.send(action)
-        wait_reply = self.client.recv(2048).decode(self.FORMAT) # waiting for reply
-        print (wait_reply)
+        robot_move_time = self.client.recv(2048).decode(self.FORMAT) # waiting for reply
+        self.robot_moves_time.append(float(robot_move_time)) # time of each robot move
+        # print (wait_reply)
