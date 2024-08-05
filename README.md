@@ -44,7 +44,7 @@ For the user experiments, you may optionally use a GUI, a microphone or a Thymio
 - _controller.aesl_: Aseba program for doing on-robot computations
 
 ### Usage
-Coded in Python 3.9 and Pytorch 1.8.1
+Coded in Python 3.9 and Pytorch 1.8.1. Please use numpy==1.22.3. Newer versions might complain.
 
 Dependencies for running the code: **AI Safety Gridworlds**, **Abseil-py**, **Pycolab**
 
