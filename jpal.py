@@ -187,7 +187,7 @@ class AgentNetwork(nn.Module):
         """
         Forward method for the full Agent Network
         
-        if state is a tuple of both global and local compoents then both networks are used - else only the global one
+        if state is a tuple of both global and local components then both networks are used - else only the global one
         
         :param state: current state of the environment
         """        
@@ -210,7 +210,7 @@ class JpalAgent():
         :param USE_JUSTIFICATIONS: boolean to use the idea of Justifications
         :param USE_HYPOTHETICAL_ACTIONS: boolean to use Hypothetical Actions
         :param USE_SIMILARITIES: boolean to use detecting deadly patterns 
-        :param USE_LOCAL_NETWORK: boolean to addiotionally use adds the local network
+        :param USE_LOCAL_NETWORK: boolean to additionally use adds the local network
         :param USE_ADPOOL: boolean for adaptive max pooling for the Global Network
         :param USE_REAL_HUMAN: boolean for using a real human input for preference queries
         :param USE_SPEECH_RECOGNITION: boolean for using speech recognition from Google for human input
@@ -253,7 +253,7 @@ class JpalAgent():
         
         # number of queries been made to each state (i.e. familiarity of state). For Island Navigation env. it can get up to !(Num_actions - 1)=!(4-1)=6
         self.number_of_queries_to_state = defaultdict(int)        
-        # Emrbaced Memory X in the form: (state, action1, action2, humanJudgement, justification (only for HA), correct action (only for HA))
+        # Embraced Memory X in the form: (state, action1, action2, humanJudgement, justification (only for HA), correct action (only for HA))
         self.X = [], [], [], [], [], []
         # The Recorded Clips memory R where recorded clips are stored
         self.R = [], [], [] # Observation from environment, Action (list for explor/exploit clips)
@@ -289,7 +289,30 @@ class JpalAgent():
         self.optimizer = Adam(self.policy.parameters(), lr=self.lr)
         
         self.times_not_bothered = 0
-     
+
+    def action_leads_to_water(self, state, action):
+        """
+        Checks whether taking a given action from the current state leads to a water cell
+
+        :param state: current state of the environment
+        :param action: int action to be taken
+        :returns: boolean indicating whether the action leads to water
+        """
+        x, y = self.find_agent_pos(state)
+
+        if action == 0:  # UP
+            nx, ny = x - 1, y
+        elif action == 1:  # DOWN
+            nx, ny = x + 1, y
+        elif action == 2:  # LEFT
+            nx, ny = x, y - 1
+        elif action == 3:  # RIGHT
+            nx, ny = x, y + 1
+        else:
+            raise ValueError("Unknown action")
+
+        return state['board'][nx][ny] == self.water_char
+
     def convert2ohe(self, board):
         """
         Converts state to One Hot Encoding form for each different object
@@ -356,7 +379,7 @@ class JpalAgent():
     def sample_2_distinct_actions(self, state):
         """
         Runs forward method and samples 2 distinct actions from policy
-        In case of Parenting or JPAL if a forbidden combination of 2 catastrophic actions was sampled eralier, then a random sampling is done
+        In case of Parenting or JPAL if a forbidden combination of 2 catastrophic actions was sampled earlier, then a random sampling is done
         
         :param state: current state of the environment
         :returns: int numpy of 2 distinct actions 
@@ -608,7 +631,7 @@ class JpalAgent():
     
     def map_to_mu(self, preference, justification):
         """
-        Maps input from human (preference and justfication) to mu in in the general case of JPAL(-HA)
+        Maps input from human (preference and justification) to mu in in the general case of JPAL(-HA)
         
         :param preference: one of the strings 'first', 'second' or 'equal'
         :param justification: one of the strings 'warning or 'no warning'
@@ -686,33 +709,43 @@ class JpalAgent():
         elif preference == 'second':
             action = actions[1]
         return action
-    
-    def give_preference_justification_from_Q(self, q1, q2):
+
+    def give_preference_justification_from_Q(self, state, actions, parent, x, y):
         """
-        Returns preference and justication of human according to q-values in the general case of JPAL(-HA)
-        
-        :param q1: float q-value of 1st action
-        :param q2: float q-value of 2nd action
+        Returns preference and justification of human according to safety of actions and q-values in the general case of JPAL(-HA)
+
+        :param state: current state of the environment
+        :param actions: list containing the two actions to be compared
+        :param parent: parent object used to obtain the q-values
+        :param x: x-coordinate of the agent
+        :param y: y-coordinate of the agent
         :returns preference: string preference chosen between actions
-        :returns justification: one of the strings 'warning or 'no warning'
-        """          
-        if q1 > 0 and q2 > 0: # if both actions acceptable
-            justification = 'no warning' # no warning
-            if q1==q2: # equally good
-                preference = 'equal'
-            elif q1 > q2: # if first action is better
-                preference = 'first'
-            elif q1 < q2: # if second action is better
-                preference = 'second'
-        elif q1 < 0 or q2 < 0: # if one of the two actions is catastrophe
+        :returns justification: one of the strings 'warning' or 'no warning'
+        """
+        q1 = parent.Q(x, y, actions[0])
+        q2 = parent.Q(x, y, actions[1])
+
+        unsafe1 = self.action_leads_to_water(state, actions[0])
+        unsafe2 = self.action_leads_to_water(state, actions[1])
+
+        if unsafe1 or unsafe2:
             justification = 'warning'
-            if q1 > 0 and q2 < 0: # if second action is a catastrophe
-                preference = 'first'
-            elif q1 < 0 and q2 > 0: # if second action is a catastrophe
+            if unsafe1 and not unsafe2:
                 preference = 'second'
-            elif q1 < 0 and q2 < 0: # if both actions are catastrophes
+            elif unsafe2 and not unsafe1:
+                preference = 'first'
+            else:
                 preference = 'equal'
-        return preference, justification      
+        else:
+            justification = 'no warning'
+            if np.isclose(q1, q2):
+                preference = 'equal'
+            elif q1 > q2:
+                preference = 'first'
+            else:
+                preference = 'second'
+
+        return preference, justification
     
     def give_preference_without_warning_from_Q(self, q1, q2):
         """
@@ -722,7 +755,7 @@ class JpalAgent():
         :param q2: float q-value of 2nd action
         :returns preference: string preference chosen between actions
         """          
-        if q1==q2: # equal
+        if np.isclose(q1, q2, atol=1e-6): # equal
             preference = 'equal'
         elif q1 > q2: # if first action is better
             preference = 'first'
@@ -730,23 +763,36 @@ class JpalAgent():
             preference = 'second'
         return preference
     
-    def give_preference_parenting_from_Q(self, q1, q2):
+    def give_preference_parenting_from_Q(self, state, actions, parent, x, y):
         """
-        Returns preference of human according to q-values for Parenting
-        
-        :param q1: float q-value of 1st action
-        :param q2: float q-value of 2nd action
-        :returns preference: string preference chosen between actions
-        """          
-        if q1==q2 and q1>0:
-            preference = 'either'
-        elif q1 > q2:
-            preference = 'first'
-        elif q1 < q2:
-            preference = 'second'
-        elif q1<0 and q2<0:
-            preference = 'neither'
-        return preference
+        Returns preference of human according to safety of actions and q-values for Parenting
+
+        :param state: current state of the environment
+        :param actions: list containing the two actions to be compared
+        :param parent: parent object used to obtain the q-values
+        :param x: x-coordinate of the agent
+        :param y: y-coordinate of the agent
+        :returns preference: one of the strings 'first', 'second', 'either' or 'neither'
+        """
+        q1 = parent.Q(x, y, actions[0])
+        q2 = parent.Q(x, y, actions[1])
+
+        unsafe1 = self.action_leads_to_water(state, actions[0])
+        unsafe2 = self.action_leads_to_water(state, actions[1])
+
+        if unsafe1 and unsafe2:
+            return 'neither'
+        elif unsafe1 and not unsafe2:
+            return 'second'
+        elif unsafe2 and not unsafe1:
+            return 'first'
+        else:
+            if np.isclose(q1, q2, atol=1e-6):
+                return 'either'
+            elif q1 > q2:
+                return 'first'
+            else:
+                return 'second'
     
     def concatenate_safe_catastr_actions(self, safe_actions, catastrophic_actions):
         """
@@ -832,18 +878,18 @@ class JpalAgent():
         self.X_len = len(self.X[0])
         return num_epochs       
 
-    def give_justification_one_action_from_Q(self, q):
+    def give_justification_one_action(self, state, action):
         """
-        Returns the justification for an action according to the the q-value 
-        
-        :param q: float q-value
-        :returns justification: one of the strings 'warning or 'no warning'      
-        """         
-        if q > 0:
-            justification = 'no warning'
-        elif q < 0:
-            justification = 'warning'
-        return justification   
+        Returns the justification for a single action according to whether the action leads to water
+
+        :param state: current state of the environment
+        :param action: int action to be evaluated
+        :returns justification: one of the strings 'warning' or 'no warning'
+        """
+        if self.action_leads_to_water(state, action):
+            return 'warning'
+        else:
+            return 'no warning'
 
     def print_board(self, state):
         """
@@ -852,20 +898,17 @@ class JpalAgent():
         print("'E'=Edge, 'W'=Water,'R'=Road, 'A'=Agent, 'G'=Goal")
         print(self.convert2board(state['board']))
             
-    def give_justification_one_action_from_real_human(self, state, parent, action, x, y):
+    def give_justification_one_action_from_real_human(self, state, action):
         """
         Returns the justification for an action according to a real human input
-        I the action taken from a specific state leads to a catastrophe then justification is 'warning', else it's 'no warning'
+        If the action taken from a specific state leads to a catastrophe then justification is 'warning', else it's 'no warning'
         
         :param state: current state of the environment
-        :param parent: parent object needed for the q-values
         :param action: action in int type
-        :param x: int x-coordinate of agent
-        :param y: int y-coordinate of agent        
         :returns justification: one of the strings 'warning or 'no warning'      
         """             
         if self.USE_CORRECTNESS_OF_USER_FROM_Q:
-            sim_justification = self.give_justification_one_action_from_Q(parent.Q(x, y, action))
+            sim_justification = self.give_justification_one_action(state, action)
         if not self.USE_THYMIO: self.print_board(state)
         print ("Please give alarm signal if Action=" + self.convert2move(action).capitalize() + " had been taken")
         tic = time.time()                   
@@ -911,9 +954,7 @@ class JpalAgent():
         :returns preference: string preference chosen between actions      
         """        
         if self.USE_CORRECTNESS_OF_USER_FROM_Q:
-            q1 = parent.Q(x, y, actions[0])
-            q2 = parent.Q(x, y, actions[1])
-            sim_preference = self.give_preference_parenting_from_Q(q1, q2)
+            sim_preference = self.give_preference_parenting_from_Q(state, actions, parent, x, y)
         if not self.USE_THYMIO: self.print_board(state)
         
         print ("Please give preference")
@@ -1014,9 +1055,7 @@ class JpalAgent():
         :returns justification: one of the strings 'warning or 'no warning'      
         """ 
         if self.USE_CORRECTNESS_OF_USER_FROM_Q:
-            q1 = parent.Q(x, y, actions[0])
-            q2 = parent.Q(x, y, actions[1])
-            sim_preference, sim_justification = self.give_preference_justification_from_Q(q1, q2)                
+            sim_preference, sim_justification = self.give_preference_justification_from_Q(state, actions, parent, x, y)
         if not self.USE_THYMIO: self.print_board(state)
         tic = time.time()                    
         if self.USE_SPEECH_RECOGNITION:
@@ -1063,16 +1102,13 @@ class JpalAgent():
         :returns preference: string preference chosen between actions
         :returns justification: one of the strings 'warning or 'no warning'       
         """
-        act1, act2 = actions          
         if self.USE_CORRECTNESS_OF_USER_FROM_Q:
-            q1 = parent.Q(x, y, actions[0])
-            q2 = parent.Q(x, y, actions[1])
-            sim_preference, sim_justification = self.give_preference_justification_from_Q(q1, q2)                
+            sim_preference, sim_justification = self.give_preference_justification_from_Q(state, actions, parent, x, y)
         if not self.USE_THYMIO: self.print_board(state)                    
         if self.USE_SPEECH_RECOGNITION:
             print ("Please give preference")                
             print(self.convert2move(actions[0]).capitalize() + ", " + self.convert2move(actions[1]).capitalize() + " or No Preference")
-            tic_p = time.time()
+            # tic_p = time.time()
             while True:
                 preference = get_audio()
                 preference = self.correct_speech(preference)
@@ -1087,10 +1123,10 @@ class JpalAgent():
                             self.P_misses +=1
                     else:
                         break
-            toc_p = time.time()
+            # toc_p = time.time()
             print ("Please give justification")
             print ("Warning' or 'No Warning")
-            tic_j = time.time()
+            # tic_j = time.time()
             while True:
                 justification = get_audio()
                 if justification in ['warning', 'no warning']:
@@ -1102,7 +1138,7 @@ class JpalAgent():
                             self.Jp_misses +=1
                     else:
                         break
-            toc_j = time.time()        
+            # toc_j = time.time()
         else:
             print ("Please give preference")
             tic_p = time.time()
@@ -1192,12 +1228,11 @@ class JpalAgent():
         """
         self.previous_state = copy.deepcopy(state)
     
-    def check_returning_to_previous_state(self, state, action):
+    def check_returning_to_previous_state(self, action):
         """
         Checks if the chosen action brings the agent back to the previous state
         Normally the agent can not sense the next state (as implemented here), but it could have been done with a simple memory rule of L<->R, U<->D
-        
-        :param state: current state of the environment
+
         :param action: int action        
         :returns: boolean True or False       
         """          
@@ -1356,7 +1391,7 @@ class JpalAgent():
                 print("Generating Hypothetical Action...")
                 justification_new_action = self.give_justification_one_action_from_real_human(state, parent, new_action, x, y)
             else:
-                justification_new_action = self.give_justification_one_action_from_Q(parent.Q(x, y, new_action))
+                justification_new_action = self.give_justification_one_action(state, new_action)
             if justification_new_action == 'warning':                                   
                 for catastrophe in catastrophic_actions:
                     if not self.is_clip_in_memory(state, catastrophe, new_action, mem='X'):
@@ -1410,7 +1445,6 @@ class JpalAgent():
                         else:
                             q1 = parent.Q(x, y, safe)
                             q2 = parent.Q(x, y, new_action)
-                            assert(q1>0 and q2>0)
                             preference = self.give_preference_without_warning_from_Q(q1, q2)
                         mu = self.map_to_mu_without_catastrophe(preference)                    
                         self.X[3].append(mu)
@@ -1428,8 +1462,8 @@ class JpalAgent():
         
         In case parent has been bothered with the same question, the agent continues with parent's last answer
         Parenting and JPAL(without Hypothetical Actions) have the weakness when two catastrophic
-        actions are stored in X. Then One of them is sampled leading to a catastrophe. Hypothetcal Actions solve
-        this problem by sotring the justification and the correct action form that state.
+        actions are stored in X. Then One of them is sampled leading to a catastrophe. Hypothetical Actions solve
+        this problem by sorting the justification and the correct action form that state.
         
         :param state: current state of the environment
         :param parent: parent object needed for the q-values
@@ -1526,9 +1560,7 @@ class JpalAgent():
                 if self.USE_REAL_HUMAN:
                     preference, justification = self.give_preference_justification_from_real_human(state, actions, parent, x, y)
                 else:
-                    q1 = parent.Q(x, y, actions[0])
-                    q2 = parent.Q(x, y, actions[1])
-                    preference, justification = self.give_preference_justification_from_Q(q1, q2)                
+                    preference, justification = self.give_preference_justification_from_Q(state, actions, parent, x, y)
                 mu = self.map_to_mu(preference, justification)                    
                 self.X[3].append(mu)
                 
@@ -1567,21 +1599,24 @@ class JpalAgent():
                         del self.X[0][-1]; del self.X[1][-1]; del self.X[2][-1]
                         sample_again = True
                 else:
-                    q1 = parent.Q(x, y, actions[0])
-                    q2 = parent.Q(x, y, actions[1])                
-                    if q1==q2 and q1>0: # # if both actions acceptable and equally good (attention on the difference with ATFQ here)
-                        self.X[3].append(0.5) # let the network learn that they do are equally good
-                        s = np.random.binomial(1, 0.5) # 1 experinment, 0.5 prob for success
-                        action = actions[s] # both actions are equally good so 50-50 prob to choose one of them
-                    elif q1 > q2: 
-                        self.X[3].append(1) # favour action 0
-                        action = actions [0] # pick action 0 
-                    elif q1 < q2:
-                        self.X[3].append(0) # favour action 1
-                        action = actions [1] # pick action 1
-                    elif q1<0 and q2<0:
-                        self.forbid_comb_catastr_act = np.insert(self.forbid_comb_catastr_act, 0, [self.X[1][-1], self.X[2][-1]])
-                        del self.X[0][-1]; del self.X[1][-1]; del self.X[2][-1]
+                    preference = self.give_preference_parenting_from_Q(state, actions, parent, x, y)
+
+                    if preference == 'either':
+                        self.X[3].append(0.5)
+                        s = np.random.binomial(1, 0.5)
+                        action = actions[s]
+                    elif preference == 'first':
+                        self.X[3].append(1)
+                        action = actions[0]
+                    elif preference == 'second':
+                        self.X[3].append(0)
+                        action = actions[1]
+                    elif preference == 'neither':
+                        self.forbid_comb_catastr_act = np.insert(
+                            self.forbid_comb_catastr_act, 0, [self.X[1][-1], self.X[2][-1]])
+                        del self.X[0][-1]
+                        del self.X[1][-1]
+                        del self.X[2][-1]
                         sample_again = True
         response_of_env = self.wrap_up_step(state, action, client)
         return response_of_env
@@ -1647,11 +1682,11 @@ class JpalAgent():
             self.P_atfq +=1
             self.Jp_atfq +=1
             if self.USE_REAL_HUMAN:
-                preference, justification = self.give_preference_justification_from_real_human(state, [exploitative_action, explorative_action], parent, x, y)                
+                preference, justification = self.give_preference_justification_from_real_human(state,
+                                                    [exploitative_action, explorative_action], parent, x, y)
             else:
-                q1 = parent.Qstate(state, exploitative_action) 
-                q2 = parent.Qstate(state, explorative_action)            
-                preference, justification = self.give_preference_justification_from_Q(q1, q2)
+                preference, justification = self.give_preference_justification_from_Q(state,
+                                                    [exploitative_action, explorative_action], parent, x, y)
             mu = self.map_to_mu(preference, justification)                    
             self.X[3].append(mu)
             
@@ -1677,7 +1712,7 @@ class JpalAgent():
             else:
                 q1 = parent.Q(x, y, exploitative_action)
                 q2 = parent.Q(x, y, explorative_action)                                                
-                if q1==q2: # the case of both being negative here is possible (not good but possible) - in BTFQs it would sample again
+                if np.isclose(q1, q2, atol=1e-6):
                     self.X[3].append(0.5)
                 elif q1>q2: 
                     self.X[3].append(1)
@@ -1687,7 +1722,7 @@ class JpalAgent():
     def train(self):
         """
         Updates the model (improves the policy)        
-        Optimisation based on (Bradley-Tery model, 1952) for estimating score functions from paiwise preferences
+        Optimisation based on (Bradley-Tery model, 1952) for estimating score functions from pairwise preferences
         
         :returns: float  Binary cross-entropy loss
         """
